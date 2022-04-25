@@ -1,0 +1,225 @@
+# This Action is meant to be triggered by both deployment and deployment_status events.
+# In a workflow triggered by deployment_status, the github context will contain both the deployment and deployment_status
+# events. This explains why github.event.deployment is referenced even when the event in question is deployment_status.
+name: "ArgoCD Continuous Delivery"
+
+description: |
+  Deploy Helm Chart To Kubernetes With ArgoCD
+
+inputs:
+  app-checkout-path:
+    description: The path to checkout the application repository to during the workflow run
+    required: false
+    default: ./app-repo
+  argocd-checkout-path:
+    description: The ArgoCD repository will be checked out to this path on the action runner
+    required: false
+    default: ./argocd-repo
+  argocd-repo:
+    description: The repository to checkout for deploying to ArgoCD. This defaults to the repo specified in the CI workflow
+    required: false
+    default: ${{ github.repository_owner }}/${{ github.event.deployment.payload.argocd-repo }}
+  argocd-ref:
+    description: The default ref to checkout e.g. `main`, `master`, `test` etc
+    required: false
+    default: main
+  environment:
+    description: Environment to deploy to
+    required: false
+    default: ${{ github.event.deployment.payload.environment }}
+  git-user-email:
+    description: Bot user email for github commits
+    required: true
+  git-user-name:
+    description: Bot user for github commits
+    required: true
+  helm-chart-name:
+    description: The name of the chart to use for template rendering
+    required: true
+  helm-charts-ref:
+    description: The default ref to checkout e.g. `main`, `master`, `test` etc
+    required: false
+    default: main
+  helm-charts-repo:
+    description: The chart repository to checkout for Helm charts.
+    required: false
+    default: ${{ github.repository_owner }}/helm-charts
+  helm-charts-checkout-path:
+    description: The helm-charts repository will be checked out to this path on the action runner
+    required: false
+    default: ./charts-repo
+  image:
+    description: Image name:tag to deploy. This defaults to the image created in the docker build CI workflow
+    required: false
+    default: ${{ github.event.deployment.payload.image }}
+  namespace:
+    description: Namespace to deploy to on Kubernetes cluster
+    required: false
+    default: ${{ github.event.deployment.payload.namespace }}
+  org-access-token:
+    description: |
+      Secret token for accessing other repos in the GitHub Org. The `secrets` context
+      is not available in composite actions and must be passed in from the calling action
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # #####################################
+    # # Environment and variable setup
+    - name: Set composite level variables
+      uses: actions/github-script@v5
+      id: vars
+      with:
+        script: |
+          const actionContext = require('./lib/actioncontext.js')(this, context, core, github, ${{ toJSON(github) }}, ${{ toJSON(inputs) }}, ${{ toJSON(steps) }})
+          const deployment = require('./lib/deployment.js')(actionContext)
+
+          actionContext.setOutput("chart_name", `${{ inputs.helm-chart-name }}`)
+          actionContext.setOutput("chart_root", `${{ inputs.helm-charts-checkout-path }}/${chart_name}`)
+          actionContext.setOutput("chart_templates", `${chart_root}/templates`)
+          actionContext.setOutput("argocd_app_root", `${{ inputs.environment }}/apps/${{ inputs.namespace }}/${{ github.event.deployment.payload.app }}`)
+          actionContext.setOutput("argocd_app_manifests", `${argocd_app_root}/manifests`)
+          actionContext.setOutput("app_deploy_root", `${{ inputs.app-checkout-path }}/.deploy`)
+          actionContext.setOutput("app_deploy_env", `${app_deploy_root}/${{ inputs.environment }}`)
+          actionContext.setOutput("app_deploy_resources", `${app_deploy_env}/resources`)
+          actionContext.setOutput("app_deploy_resources", `${app_deploy_env}/resources`)
+          actionContext.setOutput("deployment_action", deployment.getInfoCD().deployment_action)
+          actionContext.setOutput("commit_enabled", deployment.getInfoCD().commit_enabled)
+
+    - name: Prepare bot git config
+      env:
+        HOME: /home/runner
+      run: |
+        git config --global user.email ${{ inputs.git-user-email }}
+        git config --global user.name ${{ inputs.git-user-name }}
+        git config --global pull.rebase false
+        git config --global pull.ff only
+      shell: bash
+
+    # #####################################
+    # # Checkout additional repo resources
+    - name: Check out repository code
+      if: github.event.action != 'closed'
+      uses: actions/checkout@v2
+      with:
+        # Checking the repo out to a separate path seems to avoid a currently known issue
+        # https://github.com/actions/runner/issues/1300
+        path: "${{ inputs.app-checkout-path }}"
+
+    - name: Check out Charts
+      if: github.event.action != 'closed'
+      uses: actions/checkout@v2
+      with:
+        repository: "${{ inputs.helm_charts_repo }}"
+        ref: "${{ inputs.helm_charts-ref }}"
+        token: "${{ inputs.org-access-token }}"
+        path: "${{ inputs.helm-charts-checkout-path }}"
+
+    - name: Check out ArgoCD Deployment Repo
+      uses: actions/checkout@v2
+      with:
+        repository: "${{ inputs.argocd-repo }}"
+        ref: "${{ inputs.argocd-ref }}"
+        token: "${{ inputs.org-access-token }}"
+        path: "${{ inputs.argocd-checkout-path }}"
+
+    # # #####################################
+    # # Validate Values Files
+    - name: Validate Values Files
+      if: steps.vars.outputs.deployment_action == 'create'
+      run: |
+        VALUES_FILE_ROOT="${{ steps.vars.outputs.app_deploy_root }}/values.yaml"
+        VALUES_FILE_ENV="${{ steps.vars.outputs.app_deploy_env }}/values.yaml"
+        if [ ! -f "$VALUES_FILE_ROOT" ]; then
+          echo "Warning: no default values.yaml file found at ${VALUES_FILE_ROOT##*/})/$(basename $VALUES_FILE_ROOT)."
+        fi
+        if [ ! -f "$VALUES_FILE_ENV" ]; then
+          echo "Error: no environment values.yaml file found at ${VALUES_FILE_ENV##*/}/$(basename $VALUES_FILE_ENV). Exiting."
+          exit 1
+        fi
+      shell: bash
+
+    # # #####################################
+    # # Generate manifests from Helm
+    - name: Prepare resources and directories
+      if: steps.vars.outputs.deployment_action == 'create'
+      run: |
+        echo "Copying environment stage resources to chart template..."
+        if [ -d "${{ steps.vars.outputs.app_deploy_resources }}" ]; then
+          cp ${{ steps.vars.outputs.app_deploy_resources }}/* ${{ steps.vars.outputs.chart_templates }}
+        else
+          echo "No resources directory found... skipping"
+        fi
+        echo "Creating ArgoCD manifests directory..."
+        mkdir -p "${{ inputs.argocd-checkout-path }}/${{ steps.vars.outputs.argocd_app_manifests }}"
+      shell: bash
+
+    - name: Generate charts
+      uses: WyriHaximus/github-action-helm3@v2
+      if: steps.vars.outputs.deployment_action == 'create'
+      with:
+        exec: |
+          helm template "${{ github.event.deployment.payload.app }}" "${{ steps.vars.outputs.chart_root }}" \
+          --namespace "${{ inputs.namespace }}" \
+          --values="${{ steps.vars.outputs.app_deploy_root }}/values.yaml" \
+          --values="${{ steps.vars.outputs.app_deploy_env }}/values.yaml" \
+          --set image.name="${{ inputs.image }}" \
+          --set ingress.hostname="${{ github.event.deployment.payload.environment_url }}" \
+          --set service.hostname="${{ github.event.deployment.payload.service_url }}" | \
+          tee "${{ inputs.argocd-checkout-path }}/${{ steps.vars.outputs.argocd_app_manifests }}/${{ github.event.deployment.payload.app }}.yaml"
+
+    # #####################################
+    # # Create/Delete and commit files to ArgoCD application repository
+    - name: Create ${{ steps.vars.outputs.argocd_app_root }}/config.yaml
+      uses: 1arp/create-a-file-action@0.2
+      if: steps.vars.outputs.deployment_action == 'create'
+      with:
+        path: "${{ inputs.argocd-checkout-path }}/${{ steps.vars.outputs.argocd_app_root }}"
+        file: config.yaml
+        content: |
+          name: "${{ github.event.deployment.payload.app }}"
+          manifests: "${{ steps.vars.outputs.argocd_app_manifests }}"
+          namespace: "${{ inputs.namespace }}"
+          deployment_id: "${{ github.event.deployment.id }}"
+          app_repository: "${{ github.event.deployment.payload.app_repository }}"
+          app_commit: "${{ github.event.deployment.payload.app_commit }}"
+          app_hostname: "${{ github.event.deployment.payload.environment_url }}"
+
+    - name: Set Deployment to Inactive
+      if: steps.vars.outputs.deployment_action == 'delete'
+      uses: actions/github-script@v5
+      with:
+        script: |
+          deploy_status = {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: "${{ github.event.deployment.id }}",
+            state: 'inactive'
+          }
+          console.log(deploy_status)
+          let deploy_status_result = await github.rest.repos.createDeploymentStatus(deploy_status)
+          console.log(deploy_status_result) // TODO: remove
+
+    - name: Delete app from ArgoCD repo
+      if: steps.vars.outputs.deployment_action == 'delete'
+      run: |
+        if [ ! -z "${{ inputs.argocd-checkout-path }}/${{ steps.vars.outputs.argocd_app_root }}" ]; then
+          rm -rf "${{ inputs.argocd-checkout-path }}/${{ steps.vars.outputs.argocd_app_root }}"
+        fi
+      shell: bash
+
+    - name: Commit to ArgoCD app repo ("${{ steps.vars.outputs.argocd_app_root }}")
+      if: steps.vars.outputs.commit_enabled == 'true'
+      env:
+        COMMIT_MSG: "${{ github.event.deployment.ref }} deploy to ${{ inputs.environment }}"
+      run: |
+        cd "${{ inputs.argocd-checkout-path }}"
+        git add -A
+        git diff-index --quiet HEAD || git commit -m "${{ env.COMMIT_MSG }}"
+        git push origin "${{ inputs.argocd-ref }}"
+      shell: bash
+
+branding:
+  icon: target
+  color: gray-dark

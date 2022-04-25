@@ -1,0 +1,19 @@
+name: "argocd"
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  trigger-deploy:
+    # only run on pull requests so long as they don't come from forks
+    if: ( (github.event_name == 'pull_request') && (github.event.pull_request.head.repo.full_name == github.repository) ) || (github.event_name != 'pull_request')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Trigger ArgoCD Deployment
+        uses: ./

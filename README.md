@@ -74,7 +74,7 @@ Here's how to get started...
 ## Examples
 
 Here's a real world example:
-- [`github-action-ci-argocd`](https://github.com/cloudposse/github-action-ci-docker/.github/workflows/argocd.yml/) - Cloud Posse's self-testing Docker GitHub Action
+- [`github-action-cd-argocd`](https://github.com/cloudposse/github-action-ci-argocd/.github/workflows/argocd.yml/) - Cloud Posse's self-testing ArgoCD GitHub Action 
 
 
 
