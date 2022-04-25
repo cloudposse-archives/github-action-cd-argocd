@@ -1,0 +1,75 @@
+---
+#
+# This is the canonical configuration for the `README.md`
+# Run `make readme` to rebuild the `README.md`
+#
+
+# Name of this project
+name: GitHub Action CD Argo CD
+
+# License of this project
+license: "APACHE2"
+
+# Copyrights
+copyrights:
+  - name: "Cloud Posse, LLC"
+    url: "https://cloudposse.com"
+    year: "2022"
+
+# Canonical GitHub repo
+github_repo: "cloudposse/github-action-ci-argocd"
+
+# Badges to display
+badges:
+  - name: "Build Status"
+    image: "https://github.com/cloudposse/github-action-ci-argocd/workflows/argocd/badge.svg?branch=main"
+    url: "https://github.com/cloudposse/github-action-ci-argocd/actions?query=workflow%3Aargocd"
+  - name: "Latest Release"
+    image: "https://img.shields.io/github/release/cloudposse/github-action-ci-argocd.svg"
+    url: "https://github.com/cloudposse/github-action-ci-argocd/releases/latest"
+  - name: "Slack Community"
+    image: "https://slack.cloudposse.com/badge.svg"
+    url: "https://slack.cloudposse.com"
+
+related:
+  - name: "GitHub Action Auto-release"
+    description: "Automatically draft release notes for a new release when merges are made into the default branch"
+    url: "https://github.com/cloudposse/github-action-auto-release"
+  - name: "GitHub Action Terraform Auto-context"
+    description: "Automatically update `context.tf` whenever a new version becomes available"
+    url: "https://github.com/cloudposse/github-action-terraform-auto-context"
+  - name: "GitHub Action CI Terraform"
+    description: "Full suite of CI actions specifically built for Terraform, along with chatops support"
+    url: "https://github.com/cloudposse/github-action-terraform-ci"
+  - name: "GitHub Action Validate CODEOWNERS"
+    description: "Validate and lint contents of CODEOWNERS file"
+    url: "https://github.com/cloudposse/github-action-validate-codeowners"
+
+# References
+references:
+  - name: "GitHub Action - Checkout"
+    description: "Checks out a repository under $GITHUB_WORKSPACE, so a workflow can access it"
+    url: "https://github.com/actions/checkout"
+  - name: "Create Pull Request"
+    description: "Take all unpushed commits and modifications to the code and put it on a new branch with a PR already made"
+    url: "https://github.com/peter-evans/create-pull-request"
+
+# Short description of this project
+description: |-
+  Github Action CD Argo CD...
+
+# How to use this project
+usage: |-
+  If you haven't already, follow the steps in the [quickstart](#quickstart) section.
+
+# Example usage
+examples: |-
+  Here's a real world example:
+  - [`github-action-ci-argocd`](https://github.com/cloudposse/github-action-ci-docker/.github/workflows/argocd.yml/) - Cloud Posse's self-testing Docker GitHub Action
+
+# How to get started quickly
+quickstart: |-
+  Here's how to get started...
+
+# Contributors to this project
+contributors: []
